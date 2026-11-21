@@ -51,7 +51,6 @@ message's `extensions.verification-codes`. The message can still carry its norma
   "text": "I sent a verification code to your phone.",
   "extensions": {
     "verification-codes": {
-      "type": "request",
       "request_id": "vfy_3Hq8",
       "channel": "sms",
       "sent_to": "Phone number ending in 71",
@@ -64,7 +63,6 @@ message's `extensions.verification-codes`. The message can still carry its norma
 
 | Field        | Req. | Description                                                    |
 | ------------ | ---- | -------------------------------------------------------------- |
-| `type`       | Yes  | `request`.                                                     |
 | `request_id` | Yes  | An opaque ID the Company assigns to this pending verification. |
 | `channel`    | Yes  | `sms` in this version.                                         |
 | `sent_to`    | Yes  | A masked destination hint, not the full phone number.          |
@@ -108,7 +106,6 @@ using the usual Session header, ownership checks, and request ID ([spec
     "text": "The user submitted a verification code.",
     "extensions": {
       "verification-codes": {
-        "type": "response",
         "request_id": "vfy_3Hq8",
         "code": "012345"
       }
@@ -119,7 +116,6 @@ using the usual Session header, ownership checks, and request ID ([spec
 
 | Field        | Req. | Description                                                      |
 | ------------ | ---- | ---------------------------------------------------------------- |
-| `type`       | Yes  | `response`.                                                      |
 | `request_id` | Yes  | The pending request's ID, not the message POST's idempotency ID. |
 | `code`       | Yes  | The decimal digits as a string, preserving leading zeroes.       |
 
@@ -153,10 +149,6 @@ the recorded message still satisfies [spec 8.4](/docs/spec#message-fields). The 
 echo codes in replies, tool diagnostics, logs, analytics, or idempotency records. These rules also
 apply at request logging, error reporting, and tracing boundaries, before ordinary message handling.
 
-This transport rule does not promise that the code stays outside the Company Agent's model. The
-Company decides how its existing verifier receives it. Successful verification is not OAuth
-delegation, consent to a purchase, or approval of an [Operation](/docs/extensions/operations).
-
 ## 6. Content schema {#schema}
 
 This JSON Schema describes the value of `extensions.verification-codes`. Direction, ownership,
@@ -165,12 +157,11 @@ expiry, matching the requested length, and secret handling are checked separatel
 ```json label="JSON Schema: verification-codes content"
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "oneOf": [
+  "anyOf": [
     {
       "type": "object",
-      "required": ["type", "request_id", "channel", "sent_to", "length", "expires_at"],
+      "required": ["request_id", "channel", "sent_to", "length", "expires_at"],
       "properties": {
-        "type": { "const": "request" },
         "request_id": { "type": "string", "minLength": 1 },
         "channel": { "const": "sms" },
         "sent_to": { "type": "string", "minLength": 1 },
@@ -180,9 +171,8 @@ expiry, matching the requested length, and secret handling are checked separatel
     },
     {
       "type": "object",
-      "required": ["type", "request_id", "code"],
+      "required": ["request_id", "code"],
       "properties": {
-        "type": { "const": "response" },
         "request_id": { "type": "string", "minLength": 1 },
         "code": { "type": "string", "pattern": "^[0-9]+$" }
       }
