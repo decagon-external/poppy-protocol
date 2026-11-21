@@ -1,0 +1,80 @@
+[
+    {
+        "id": "1.1",
+        "pages": [
+            "spec",
+            "extensions",
+            "extensions/browser-control",
+            "extensions/disclosures",
+            "extensions/links",
+            "extensions/mediated-sign-in",
+            "extensions/operations",
+            "extensions/ucp",
+            "guides"
+        ]
+    },
+    {
+        "id": "1.0",
+        "published": "2026-11-14",
+        "pages": {
+            "spec": "559a191127cb81d4e77360cd1cfae35233178a89b71b39c0534142a2bab918d6",
+            "extensions": "9551439dbf2eee5809da465d9c084c5f941c76316b076bf1f63fda87abd9d183",
+            "extensions/browser-control": "f6b1c55bffa1684dabd72f7b33306a6b61366d28bb312a4bda77c06a6aa73041",
+            "extensions/disclosures": "5ef8174b267b84767e081a11d7b3b81cf4fa727eb6ec76464af1c3990729477d",
+            "extensions/links": "20c02ca301a5ad9a8df5884081173cca867a3098bf7a8433c0de0a55428907df",
+            "extensions/mediated-sign-in": "a24d93de91583a77628542d30c66304c91c4a8d3004b577aeca504b5becf69bf",
+            "extensions/operations": "b470288f1ecd74a2e7e2db3eb6b0d73b67b3b235c9e21c1678ff8e5f81fcd896",
+            "extensions/ucp": "469df0e54d528dca7c63129d674b1a164403ea7166548e21afbd557806750db5",
+            "guides": "cd18b4eaaaa4db5a0865da4f303043f8241309e0547c7074c7b44d7455ff5ee2"
+        }
+    },
+    {
+        "id": "0.4",
+        "published": "2026-11-10",
+        "pages": {
+            "spec": "d915d8f28bf4e2e4f6e89cfaa2a4e62ba398258144e09abcde1f0868752ec63b",
+            "extensions": "9551439dbf2eee5809da465d9c084c5f941c76316b076bf1f63fda87abd9d183",
+            "extensions/browser-control": "f6b1c55bffa1684dabd72f7b33306a6b61366d28bb312a4bda77c06a6aa73041",
+            "extensions/disclosures": "5ef8174b267b84767e081a11d7b3b81cf4fa727eb6ec76464af1c3990729477d",
+            "extensions/links": "20c02ca301a5ad9a8df5884081173cca867a3098bf7a8433c0de0a55428907df",
+            "extensions/mediated-sign-in": "dd05b88da8c0376b6cd272f9f90c9f01fcda3958f42de81b6de82c0fea91cd2f",
+            "extensions/operations": "85a99b01b583161095bbf51ee9824093dd4bedd4ff5f89c578175470e6ab15fc",
+            "extensions/ucp": "17eca6bbfcb716890da1d52b86034a42cc7e708757eac42dbcae65cc946da860",
+            "guides": "76db8df23345bb143c01e85b3b3019bc6d8dbffcb1ecfa4616f1d3355b3741d3"
+        }
+    },
+    {
+        "id": "0.3",
+        "published": "2026-11-04",
+        "pages": {
+            "spec": "2bf4eaa68041e960f45d2397844d0dc4163d9610698c251d9c97b17b01b16fdd",
+            "extensions": "faf1eef88fc48f94edb46c948a4d97a64a83500f058fafb6d593c52a5c546130",
+            "extensions/disclosures": "5def27d62a9026c3763dc249ce647045003b15802589de158664e774f0dd317b",
+            "extensions/links": "ad7b6c62cc6cfbabb4186121c617be81ddb5b5cf03e475835c9e5950458c9997",
+            "extensions/mediated-sign-in": "2943daab8c0bf329284ba24f2171335325fed8cc8672683b69a5baf52a8517bd",
+            "extensions/operations": "fe41e0f97ad8a00f89058c163800e59785cab8f9e6f1fffbf9b24566b4a614db",
+            "extensions/ucp": "2e396cf528d20b6b83aeb7af4b5ba5d0c011709b3f6b39fe4cf6dd7d626f72d4",
+            "guides": "8bdcf140235c0d80617e16f493c548382b98c7bf2a200497c081527c24fb7e2c"
+        }
+    },
+    {
+        "id": "0.2",
+        "published": "2026-10-24",
+        "pages": {
+            "spec": "5f6ac40cb2c2114fe85ebe3f1c2fec8a2cbfc90f2a92a2bf44e6ce0e518e0a26",
+            "extensions": "f7b71b97f3151337a6ce67f015b0fe8fdf28234df2700335aca47dd5afad2eff",
+            "extensions/operations": "2daa248b43d2ae91a89c66f73de95a4a8e4db090773b6e88bb35e18ce88aed87",
+            "guides": "70ca417b8cd323485792db5652b4686d9cbf5059f9e9c6f1843ace6d15697e8c"
+        }
+    },
+    {
+        "id": "0.1",
+        "published": "2026-10-09",
+        "pages": {
+            "spec": "0177017aeb839313979bcfccf6836c81c79ea2328db9864c3ec1f70a18a54ff0",
+            "extensions": "f7b71b97f3151337a6ce67f015b0fe8fdf28234df2700335aca47dd5afad2eff",
+            "extensions/operations": "693c9c3e6c1c21d788194d12950985c08d60b5c042a9aa6efd30248d5c2315b1",
+            "guides": "3432c145a045daab70e9ea15885c0b52250041b8de683afc28e730cd921bad07"
+        }
+    }
+]
