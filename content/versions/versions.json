@@ -10,6 +10,7 @@
             "extensions/mediated-sign-in",
             "extensions/operations",
             "extensions/ucp",
+            "extensions/verification-codes",
             "guides"
         ]
     },

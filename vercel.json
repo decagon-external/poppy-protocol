@@ -137,6 +137,16 @@
             "permanent": false
         },
         {
+            "source": "/docs/extensions/verification-codes",
+            "destination": "/docs/1.1/extensions/verification-codes",
+            "permanent": false
+        },
+        {
+            "source": "/docs/extensions/verification-codes.md",
+            "destination": "/docs/1.1/extensions/verification-codes.md",
+            "permanent": false
+        },
+        {
             "source": "/docs/guides",
             "destination": "/docs/1.0/guides",
             "permanent": false

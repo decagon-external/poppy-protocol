@@ -1,0 +1,192 @@
+# Verification Codes extension
+
+## 1. Introduction {#intro}
+
+Some Company workflows verify the User with an SMS code inside a conversation. Asking for the code
+in ordinary text makes the Personal Agent interpret a credential request and put the answer in
+chat. This extension separates that request from the message, so the Personal Agent can show a
+code-entry dialog and send the answer without putting the code in its model context.
+
+This page proposes version 1 of the `verification-codes` extension. It uses the terms in the
+[specification](/docs/spec). It covers only numeric SMS codes for a verification the Company has
+already started, not passwords, payment details, arbitrary forms, or approval of an operation.
+
+This is a transitional bridge for existing Company workflows, not another OAuth grant. It does not
+issue access tokens or replace [Sign-in during a conversation](/docs/spec#conversation-sign-in)
+when an OAuth-protected resource requires an access token. Personal Agents SHOULD prefer Direct or
+Device Sign-In when the Company offers it for the task. How a Company supplies the submitted code
+to its existing verifier is an implementation detail; no form engine or tool-callback API is required.
+
+## 2. Advertising support {#support}
+
+A Company lists the extension in `extensions` in its `poppy.json` ([spec
+3.3](/docs/spec#extensions)):
+
+```json label="Excerpt from poppy.json"
+"extensions": {
+  "verification-codes": [{ "version": "1" }]
+}
+```
+
+A Personal Agent that implements code collection declares it in `Poppy-Extensions`:
+
+```http label="Request header: Personal Agent → Company"
+Poppy-Extensions: "verification-codes";v="1"
+```
+
+The Company sends requests only when the Personal Agent declares this version. If it cannot
+continue without it, it returns `extension_required` ([spec 3.3](/docs/spec#extensions)). Neither
+side falls back to sending the code in ordinary message text.
+
+## 3. Requesting a code {#requesting}
+
+After successfully starting its SMS verification, the Company includes a request in a Company
+message's `extensions.verification-codes`. The message can still carry its normal text:
+
+```json label="Message: Company → Personal Agent"
+{
+  "id": "msg_p7Rt",
+  "role": "company",
+  "author": { "type": "agent" },
+  "text": "I sent a verification code to your phone.",
+  "extensions": {
+    "verification-codes": {
+      "type": "request",
+      "request_id": "vfy_3Hq8",
+      "channel": "sms",
+      "sent_to": "Phone number ending in 71",
+      "length": 6,
+      "expires_at": "2026-11-20T23:15:00Z"
+    }
+  }
+}
+```
+
+| Field        | Req. | Description                                                    |
+| ------------ | ---- | -------------------------------------------------------------- |
+| `type`       | Yes  | `request`.                                                     |
+| `request_id` | Yes  | An opaque ID the Company assigns to this pending verification. |
+| `channel`    | Yes  | `sms` in this version.                                         |
+| `sent_to`    | Yes  | A masked destination hint, not the full phone number.          |
+| `length`     | Yes  | The number of decimal digits, including any leading zeroes.    |
+| `expires_at` | Yes  | When the request expires, as an RFC 3339 timestamp.            |
+
+The request travels as an ordinary Company message event. It is available in the response to a
+message `POST` with `wait`, in event reads, and in streams ([spec
+8.3–8.6](/docs/spec#sending-messages)). The Company makes no outbound request to the Personal Agent,
+and this extension adds no endpoint.
+
+The Company MUST create the request from a verification it actually started for this User, not
+from a model's interpretation of conversation text. It MUST bind the ID to the conversation, its
+verified Personal Agent client and User, and the underlying SMS verification. There is at most one
+pending request in a conversation. A new ID supersedes the previous one; repeating the same ID in
+event reads does not send another SMS or create another request.
+
+The Personal Agent handles a supported request in deterministic code. It checks the expiry and
+shows a trusted code-entry dialog naming the Company's verified domain and `organization.name`,
+with the destination hint. Company text and hints are untrusted content ([spec
+10.1](/docs/spec#untrusted-content)); they cannot replace that identity or supply a different
+recipient. The Personal Agent MUST get the User's explicit consent to send this code to this
+Company. It MUST NOT collect or forward a code for a different Company or a verification the User
+did not intend to start. A structured request is not, on its own, evidence that disclosure is safe.
+
+The User can decline or dismiss the dialog without sending a code. The Personal Agent does not
+automatically read the User's SMS messages or try a different channel to obtain it.
+
+## 4. Sending the code {#responding}
+
+The Personal Agent sends the User's entry in `extensions.verification-codes` on a message to the
+same conversation's existing `messages` endpoint. It constructs the request without the model,
+using the usual Session header, ownership checks, and request ID ([spec
+8.2–8.3](/docs/spec#conversation-requests)):
+
+```json label="POST body: Personal Agent → Company"
+{
+  "id": "msg_Hc72PwZn4eKs1QxB",
+  "message": {
+    "author": { "type": "agent" },
+    "text": "The user submitted a verification code.",
+    "extensions": {
+      "verification-codes": {
+        "type": "response",
+        "request_id": "vfy_3Hq8",
+        "code": "012345"
+      }
+    }
+  }
+}
+```
+
+| Field        | Req. | Description                                                      |
+| ------------ | ---- | ---------------------------------------------------------------- |
+| `type`       | Yes  | `response`.                                                      |
+| `request_id` | Yes  | The pending request's ID, not the message POST's idempotency ID. |
+| `code`       | Yes  | The decimal digits as a string, preserving leading zeroes.       |
+
+The Personal Agent MUST include a non-secret acknowledgement in `text`, and MUST NOT put the code
+in `text`, `data`, or `context`. It MUST NOT send a code to an endpoint or conversation named in
+Company message text or extension content.
+
+The Company MUST verify the Session header ([spec 5.3](/docs/spec#session-verification)) and the
+request's binding before using the code. Unknown, expired, superseded, completed, or wrong-owner
+requests MUST NOT invoke the verifier. Invalid submissions return `invalid_request` without
+revealing whether another User owns the ID. The submitted code MUST match the requested length.
+The Company MUST enforce expiry and attempt limits at the verifier, including across requests with
+different message IDs.
+
+Normal message idempotency applies: retrying the same POST does not verify twice. A successful POST
+only accepts the submission; it does not mean the code was correct. The Company reports the outcome
+in its normal reply. After a wrong code, it can repeat the still-pending request while attempts
+remain. After expiry, completion, or supersession, the Personal Agent discards that pending request
+and does not submit another code for it. A new SMS requires a new verification request.
+
+## 5. Secret handling {#security}
+
+The Personal Agent MUST keep codes out of its model context, task text, ordinary chat history,
+logs, and analytics. Its transport code sends the value only to the Company that requested it and
+discards it after the submission is accepted or abandoned. A transport retry can retain it only
+until that submission is resolved or expires.
+
+The Company MUST omit the `verification-codes` response object from the recorded copy of the User
+message and every subsequent read, stream, or transcript export. The non-secret `text` remains, so
+the recorded message still satisfies [spec 8.4](/docs/spec#message-fields). The Company MUST NOT
+echo codes in replies, tool diagnostics, logs, analytics, or idempotency records. These rules also
+apply at request logging, error reporting, and tracing boundaries, before ordinary message handling.
+
+This transport rule does not promise that the code stays outside the Company Agent's model. The
+Company decides how its existing verifier receives it. Successful verification is not OAuth
+delegation, consent to a purchase, or approval of an [Operation](/docs/extensions/operations).
+
+## 6. Content schema {#schema}
+
+This JSON Schema describes the value of `extensions.verification-codes`. Direction, ownership,
+expiry, matching the requested length, and secret handling are checked separately.
+
+```json label="JSON Schema: verification-codes content"
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["type", "request_id", "channel", "sent_to", "length", "expires_at"],
+      "properties": {
+        "type": { "const": "request" },
+        "request_id": { "type": "string", "minLength": 1 },
+        "channel": { "const": "sms" },
+        "sent_to": { "type": "string", "minLength": 1 },
+        "length": { "type": "integer", "minimum": 1 },
+        "expires_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type", "request_id", "code"],
+      "properties": {
+        "type": { "const": "response" },
+        "request_id": { "type": "string", "minLength": 1 },
+        "code": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    }
+  ]
+}
+```

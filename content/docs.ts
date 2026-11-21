@@ -160,6 +160,14 @@ const TABS: TabInfo[] = [
                     "How a company that speaks the Universal Commerce Protocol connects: this protocol finds the company and signs the user in, and the shopping happens through UCP.",
                 outlineDepth: 2,
             },
+            {
+                slug: "extensions/verification-codes",
+                navTitle: "Verification Codes",
+                title: "Personal Agent Protocol: Verification Codes extension",
+                description:
+                    "A company requests an SMS code in a conversation, and the personal agent collects and returns it through structured input outside its model context.",
+                outlineDepth: 2,
+            },
         ],
     },
     {
