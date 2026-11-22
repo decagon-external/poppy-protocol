@@ -2,14 +2,14 @@
 
 ## 1. Introduction {#intro}
 
-Some Company workflows verify the User with an SMS code inside a conversation. Asking for the code
+Some Company workflows verify the User with a code inside a conversation. Asking for the code
 in ordinary text makes the Personal Agent interpret a credential request and put the answer in
 chat. This extension separates that request from the message, so the Personal Agent can show a
 code-entry dialog and send the answer without putting the code in its model context.
 
 This page proposes version 1 of the `verification-codes` extension. It uses the terms in the
-[specification](/docs/spec). It covers only numeric SMS codes for a verification the Company has
-already started, not passwords, payment details, arbitrary forms, or approval of an operation.
+[specification](/docs/spec). It supports codes for verifications the Company has already started,
+not passwords, payment details, arbitrary forms, or approval of an operation.
 
 This is a transitional bridge for existing Company workflows, not another OAuth grant. It does not
 issue access tokens or replace [Sign-in during a conversation](/docs/spec#conversation-sign-in)
@@ -40,20 +40,20 @@ side falls back to sending the code in ordinary message text.
 
 ## 3. Requesting a code {#requesting}
 
-After successfully starting its SMS verification, the Company includes a request in a Company
-message's `extensions.verification-codes`. The message can still carry its normal text:
+After starting a verification, the Company includes a request in a Company message's
+`extensions.verification-codes`. The message can still carry its normal text:
 
 ```json label="Message: Company → Personal Agent"
 {
   "id": "msg_p7Rt",
   "role": "company",
   "author": { "type": "agent" },
-  "text": "I sent a verification code to your phone.",
+  "text": "I sent a verification code to your email address.",
   "extensions": {
     "verification-codes": {
       "request_id": "vfy_3Hq8",
-      "channel": "sms",
-      "sent_to": "Phone number ending in 71",
+      "channel": "email",
+      "sent_to": "j***@example.com",
       "length": 6,
       "expires_at": "2026-11-20T23:15:00Z"
     }
@@ -64,9 +64,9 @@ message's `extensions.verification-codes`. The message can still carry its norma
 | Field        | Req. | Description                                                    |
 | ------------ | ---- | -------------------------------------------------------------- |
 | `request_id` | Yes  | An opaque ID the Company assigns to this pending verification. |
-| `channel`    | Yes  | `sms` in this version.                                         |
-| `sent_to`    | Yes  | A masked destination hint, not the full phone number.          |
-| `length`     | Yes  | The number of decimal digits, including any leading zeroes.    |
+| `channel`    | Yes  | Code source, such as email or an authenticator.                |
+| `sent_to`    | No   | A masked destination hint, when the code was sent somewhere.   |
+| `length`     | Yes  | The number of characters in the code.                         |
 | `expires_at` | Yes  | When the request expires, as an RFC 3339 timestamp.            |
 
 The request travels as an ordinary Company message event. It is available in the response to a
@@ -76,20 +76,20 @@ and this extension adds no endpoint.
 
 The Company MUST create the request from a verification it actually started for this User, not
 from a model's interpretation of conversation text. It MUST bind the ID to the conversation, its
-verified Personal Agent client and User, and the underlying SMS verification. There is at most one
+verified Personal Agent client and User, and the underlying verification. There is at most one
 pending request in a conversation. A new ID supersedes the previous one; repeating the same ID in
-event reads does not send another SMS or create another request.
+event reads does not resend a code or create another request.
 
 The Personal Agent handles a supported request in deterministic code. It checks the expiry and
 shows a trusted code-entry dialog naming the Company's verified domain and `organization.name`,
-with the destination hint. Company text and hints are untrusted content ([spec
+with the destination hint, if provided. Company text and hints are untrusted content ([spec
 10.1](/docs/spec#untrusted-content)); they cannot replace that identity or supply a different
 recipient. The Personal Agent MUST get the User's explicit consent to send this code to this
 Company. It MUST NOT collect or forward a code for a different Company or a verification the User
 did not intend to start. A structured request is not, on its own, evidence that disclosure is safe.
 
 The User can decline or dismiss the dialog without sending a code. The Personal Agent does not
-automatically read the User's SMS messages or try a different channel to obtain it.
+automatically retrieve the User's codes or try a different channel to obtain one.
 
 ## 4. Sending the code {#responding}
 
@@ -107,7 +107,7 @@ using the usual Session header, ownership checks, and request ID ([spec
     "extensions": {
       "verification-codes": {
         "request_id": "vfy_3Hq8",
-        "code": "012345"
+        "code": "0A2bC5"
       }
     }
   }
@@ -117,7 +117,10 @@ using the usual Session header, ownership checks, and request ID ([spec
 | Field        | Req. | Description                                                      |
 | ------------ | ---- | ---------------------------------------------------------------- |
 | `request_id` | Yes  | The pending request's ID, not the message POST's idempotency ID. |
-| `code`       | Yes  | The decimal digits as a string, preserving leading zeroes.       |
+| `code`       | Yes  | A non-empty string, preserving casing and leading zeroes.        |
+
+Codes may be numeric, alphanumeric, or another format the Company verifies. The Personal Agent
+MUST send the code as entered, without case conversion or other normalization.
 
 The Personal Agent MUST include a non-secret acknowledgement in `text`, and MUST NOT put the code
 in `text`, `data`, or `context`. It MUST NOT send a code to an endpoint or conversation named in
@@ -127,14 +130,15 @@ The Company MUST verify the Session header ([spec 5.3](/docs/spec#session-verifi
 request's binding before using the code. Unknown, expired, superseded, completed, or wrong-owner
 requests MUST NOT invoke the verifier. Invalid submissions return `invalid_request` without
 revealing whether another User owns the ID. The submitted code MUST match the requested length.
-The Company MUST enforce expiry and attempt limits at the verifier, including across requests with
-different message IDs.
+The Company MUST enforce the expected code format, expiry, and attempt limits at the verifier,
+including across requests with different message IDs.
 
 Normal message idempotency applies: retrying the same POST does not verify twice. A successful POST
 only accepts the submission; it does not mean the code was correct. The Company reports the outcome
 in its normal reply. After a wrong code, it can repeat the still-pending request while attempts
 remain. After expiry, completion, or supersession, the Personal Agent discards that pending request
-and does not submit another code for it. A new SMS requires a new verification request.
+and does not submit another code for it. Starting another verification or resending a code requires
+a new request ID.
 
 ## 5. Secret handling {#security}
 
@@ -160,10 +164,10 @@ expiry, matching the requested length, and secret handling are checked separatel
   "anyOf": [
     {
       "type": "object",
-      "required": ["request_id", "channel", "sent_to", "length", "expires_at"],
+      "required": ["request_id", "channel", "length", "expires_at"],
       "properties": {
         "request_id": { "type": "string", "minLength": 1 },
-        "channel": { "const": "sms" },
+        "channel": { "type": "string", "minLength": 1 },
         "sent_to": { "type": "string", "minLength": 1 },
         "length": { "type": "integer", "minimum": 1 },
         "expires_at": { "type": "string", "format": "date-time" }
@@ -174,7 +178,7 @@ expiry, matching the requested length, and secret handling are checked separatel
       "required": ["request_id", "code"],
       "properties": {
         "request_id": { "type": "string", "minLength": 1 },
-        "code": { "type": "string", "pattern": "^[0-9]+$" }
+        "code": { "type": "string", "minLength": 1 }
       }
     }
   ]

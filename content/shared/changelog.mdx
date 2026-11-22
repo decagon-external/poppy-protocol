@@ -52,11 +52,12 @@ MUST NOT list a task both here and in `excluded_tasks`.
 
 </Change>
 
-<Change title="SMS verification in conversations" sections="Verification Codes">
+<Change title="Verification codes in conversations" sections="Verification Codes">
 
-The optional Verification Codes extension lets a Company request an SMS code in a conversation
+The optional Verification Codes extension lets a Company request a verification code in a conversation
 message. The Personal Agent collects it through trusted UI and replies through the existing
-messages endpoint without putting it in its model context. Requests are bound to a pending
+messages endpoint without putting it in its model context. Codes are strings, including numeric and
+alphanumeric values, and are submitted without changing their casing. Requests are bound to a pending
 verification and expire; codes stay out of recorded messages and event reads. This is a
 transitional bridge for existing workflows, not an OAuth grant or an operation approval.
 

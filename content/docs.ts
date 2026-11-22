@@ -165,7 +165,7 @@ const TABS: TabInfo[] = [
                 navTitle: "Verification Codes",
                 title: "Personal Agent Protocol: Verification Codes extension",
                 description:
-                    "A company requests an SMS code in a conversation, and the personal agent collects and returns it through structured input outside its model context.",
+                    "A company requests a verification code in a conversation, and the personal agent collects and returns it through structured input outside its model context.",
                 outlineDepth: 2,
             },
         ],
