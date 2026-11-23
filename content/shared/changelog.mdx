@@ -52,14 +52,16 @@ MUST NOT list a task both here and in `excluded_tasks`.
 
 </Change>
 
-<Change title="Verification codes in conversations" sections="Verification Codes">
+<Change title="Verification codes across interfaces" sections="Verification Codes">
 
-The optional Verification Codes extension lets a Company request a verification code in a conversation
-message. The Personal Agent collects it through trusted UI and replies through the existing
-messages endpoint without putting it in its model context. Codes are strings, including numeric and
-alphanumeric values, and are submitted without changing their casing. Requests are bound to a pending
-verification and expire; codes stay out of recorded messages and event reads. This is a
-transitional bridge for existing workflows, not an OAuth grant or an operation approval.
+The optional Verification Codes extension defines standalone verification requests and code
+submissions, carried by APIs, MCP tools, conversations, or websites. Conversations use the existing
+messages endpoint. The other interfaces use an advertised verification endpoint, with a joined
+browser's response header referring to a request the Personal Agent retrieves there. The Personal
+Agent collects codes through trusted UI and submits them outside its model context. Codes preserve
+casing and leading zeroes, and stay out of ordinary records. Request binding, expiry, attempt limits,
+and idempotency apply on every interface. Verification does not approve or perform the original
+action, grant OAuth tokens, or require Operations or a shared Company-to-Agent envelope.
 
 </Change>
 

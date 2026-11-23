@@ -2,20 +2,25 @@
 
 ## 1. Introduction {#intro}
 
-Some Company workflows verify the User with a code inside a conversation. Asking for the code
-in ordinary text makes the Personal Agent interpret a credential request and put the answer in
-chat. This extension separates that request from the message, so the Personal Agent can show a
-code-entry dialog and send the answer without putting the code in its model context.
+A Company can ask the User for a verification code while handling an API request, an MCP tool
+call, a conversation, or a browser request. The verification request is the same object on each
+interface. The Personal Agent collects the code through trusted UI and submits it without putting
+it in its model context.
 
 This page proposes version 1 of the `verification-codes` extension. It uses the terms in the
 [specification](/docs/spec). It supports codes for verifications the Company has already started,
-not passwords, payment details, arbitrary forms, or approval of an operation.
+not passwords, payment details, arbitrary forms, or approval of an operation. Codes may be numeric,
+alphanumeric, or another format the Company verifies.
 
-This is a transitional bridge for existing Company workflows, not another OAuth grant. It does not
-issue access tokens or replace [Sign-in during a conversation](/docs/spec#conversation-sign-in)
-when an OAuth-protected resource requires an access token. Personal Agents SHOULD prefer Direct or
-Device Sign-In when the Company offers it for the task. How a Company supplies the submitted code
-to its existing verifier is an implementation detail; no form engine or tool-callback API is required.
+This is a separate extension from [Operations](/docs/extensions/operations). It follows the same
+pattern of a standalone object with interface-specific delivery rules. A common Company-to-Agent
+envelope could later carry both kinds of object; this proposal does not require that refactor or
+change Operations.
+
+This is not another OAuth grant. It does not issue access tokens or replace Direct or Device
+Sign-In when an OAuth-protected resource requires an access token. How a Company supplies the
+submitted code to its existing verifier is an implementation detail; no form engine or
+tool-callback API is required.
 
 ## 2. Advertising support {#support}
 
@@ -23,25 +28,134 @@ A Company lists the extension in `extensions` in its `poppy.json` ([spec
 3.3](/docs/spec#extensions)):
 
 ```json label="Excerpt from poppy.json"
-"extensions": {
-  "verification-codes": [{ "version": "1" }]
+{
+  "extensions": {
+    "verification-codes": [
+      { "version": "1", "endpoint": "https://example.com/poppy/verification-codes" }
+    ]
+  }
 }
 ```
 
-A Personal Agent that implements code collection declares it in `Poppy-Extensions`:
+`endpoint` is the HTTPS URL where the Personal Agent submits codes returned outside conversations
+and retrieves requests referenced by a website. A Company MUST list it if it returns verification
+requests at an API, MCP server, or website. A Company using only conversations omits it and uses
+its existing messages endpoint. Website support also requires `web.browser_session_endpoint`
+([spec 6](/docs/spec#web-browsing)).
+
+Signed-in calls to `endpoint` use a token valid for that endpoint under [spec
+4.5](/docs/spec#access-tokens), with the token's usual Bearer or DPoP handling. A token issued only
+for an originating API or MCP server MUST NOT be sent to this separate endpoint.
+
+A Personal Agent declares this version in `Poppy-Extensions` on an interface whose binding it
+implements. A browser uses the extensions declared when it joined the Session:
 
 ```http label="Request header: Personal Agent → Company"
 Poppy-Extensions: "verification-codes";v="1"
 ```
 
-The Company sends requests only when the Personal Agent declares this version. If it cannot
-continue without it, it returns `extension_required` ([spec 3.3](/docs/spec#extensions)). Neither
-side falls back to sending the code in ordinary message text.
+Support does not require offering every interface. Each side implements the bindings for the
+interfaces on which it uses this extension. The Company returns requests only when this version
+was declared. If it cannot continue without it, it returns `extension_required` ([spec
+3.3](/docs/spec#extensions)); an MCP tool uses the ordinary tool-error form. Neither side falls
+back to sending the code in ordinary text.
 
-## 3. Requesting a code {#requesting}
+## 3. Verification objects {#requesting}
 
-After starting a verification, the Company includes a request in a Company message's
-`extensions.verification-codes`. The message can still carry its normal text:
+The Company creates a verification request after starting a verification for this User:
+
+```json label="Verification request: Company → Personal Agent"
+{
+  "request_id": "vfy_3Hq8",
+  "channel": "email",
+  "sent_to": "j***@example.com",
+  "length": 6,
+  "expires_at": "2026-11-24T23:15:00Z"
+}
+```
+
+| Field        | Req. | Description                                                     |
+| ------------ | ---- | --------------------------------------------------------------- |
+| `request_id` | Yes  | An opaque ID for this verification, not a transport message ID. |
+| `channel`    | Yes  | Code source, such as email or an authenticator.                 |
+| `sent_to`    | No   | A masked destination hint, when the code was sent somewhere.    |
+| `length`     | Yes  | The number of characters, counted as Unicode code points.       |
+| `expires_at` | Yes  | When the request expires, as an RFC 3339 timestamp.             |
+
+The Personal Agent submits a separate object:
+
+```json label="Code submission: Personal Agent → Company"
+{ "request_id": "vfy_3Hq8", "code": "0A2bC5" }
+```
+
+| Field        | Req. | Description                                               |
+| ------------ | ---- | --------------------------------------------------------- |
+| `request_id` | Yes  | The verification request's ID.                            |
+| `code`       | Yes  | A non-empty string, preserving casing and leading zeroes. |
+
+The Personal Agent MUST send the code as entered, without case conversion or other normalization.
+Neither object contains a conversation ID, a callback URL, or a tool name. The Company binds the
+request ID to its originating context (6); the interface determines where the object travels.
+
+## 4. Returning a verification request {#delivery}
+
+The Company returns the same verification object through the interface that encountered the
+verification step. A blocked API, tool, or browser action MUST NOT be performed before the
+verification succeeds. Returning a request does not authorize that action.
+
+### APIs {#delivery-apis}
+
+The API returns HTTP 403 with `error` set to `verification_required` and the object in
+`verification`. This is not an OAuth challenge and does not go in `WWW-Authenticate`:
+
+```http label="Response: Company → Personal Agent"
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+Cache-Control: no-store
+
+{
+  "error": "verification_required",
+  "verification": {
+    "request_id": "vfy_3Hq8",
+    "channel": "email",
+    "sent_to": "j***@example.com",
+    "length": 6,
+    "expires_at": "2026-11-24T23:15:00Z"
+  }
+}
+```
+
+The Personal Agent submits the code to the advertised `endpoint` (5), not to a URL supplied in
+the response body. The original API keeps its own request format.
+
+### MCP {#delivery-mcp}
+
+The tool returns an error result with `isError: true`, non-secret explanatory text in `content`,
+and `error: "verification_required"` plus `verification` in `structuredContent`:
+
+```json label="Tool result: Company → Personal Agent"
+{
+  "isError": true,
+  "content": [{ "type": "text", "text": "Verification is required before continuing." }],
+  "structuredContent": {
+    "error": "verification_required",
+    "verification": {
+      "request_id": "vfy_3Hq8",
+      "channel": "email",
+      "sent_to": "j***@example.com",
+      "length": 6,
+      "expires_at": "2026-11-24T23:15:00Z"
+    }
+  }
+}
+```
+
+The Personal Agent submits the code to `endpoint`, not through a model-generated tool call.
+
+### Conversations {#delivery-conversations}
+
+A Company message carries the verification object directly in `extensions.verification-codes`.
+It can still carry its normal text:
 
 ```json label="Message: Company → Personal Agent"
 {
@@ -55,48 +169,94 @@ After starting a verification, the Company includes a request in a Company messa
       "channel": "email",
       "sent_to": "j***@example.com",
       "length": 6,
-      "expires_at": "2026-11-20T23:15:00Z"
+      "expires_at": "2026-11-24T23:15:00Z"
     }
   }
 }
 ```
 
-| Field        | Req. | Description                                                    |
-| ------------ | ---- | -------------------------------------------------------------- |
-| `request_id` | Yes  | An opaque ID the Company assigns to this pending verification. |
-| `channel`    | Yes  | Code source, such as email or an authenticator.                |
-| `sent_to`    | No   | A masked destination hint, when the code was sent somewhere.   |
-| `length`     | Yes  | The number of characters in the code.                         |
-| `expires_at` | Yes  | When the request expires, as an RFC 3339 timestamp.            |
+This is an ordinary message event, available in a message POST's response, event reads, and
+streams ([spec 8.3–8.6](/docs/spec#sending-messages)). Submission uses the same conversation's
+existing messages endpoint (5). No new endpoint or outbound Company request is needed for this
+binding.
 
-The request travels as an ordinary Company message event. It is available in the response to a
-message `POST` with `wait`, in event reads, and in streams ([spec
-8.3–8.6](/docs/spec#sending-messages)). The Company makes no outbound request to the Personal Agent,
-and this extension adds no endpoint.
+### Websites {#delivery-websites}
 
-The Company MUST create the request from a verification it actually started for this User, not
-from a model's interpretation of conversation text. It MUST bind the ID to the conversation, its
-verified Personal Agent client and User, and the underlying verification. There is at most one
-pending request in a conversation. A new ID supersedes the previous one; repeating the same ID in
-event reads does not resend a code or create another request.
+A website uses this binding only for a browser joined to a Session and handled as that Session,
+under the same account-matching rules as [Operations
+4](/docs/extensions/operations#approval-required-websites). Otherwise it handles verification
+through its own UI.
 
-The Personal Agent handles a supported request in deterministic code. It checks the expiry and
-shows a trusted code-entry dialog naming the Company's verified domain and `organization.name`,
-with the destination hint, if provided. Company text and hints are untrusted content ([spec
-10.1](/docs/spec#untrusted-content)); they cannot replace that identity or supply a different
-recipient. The Personal Agent MUST get the User's explicit consent to send this code to this
-Company. It MUST NOT collect or forward a code for a different Company or a verification the User
-did not intend to start. A structured request is not, on its own, evidence that disclosure is safe.
+The website returns HTTP 403 and a reference in the `Poppy-Verification` response header. Like
+`Poppy-Operation`, this is a Dictionary Structured Field ([RFC
+9651](https://www.rfc-editor.org/rfc/rfc9651)) with `sid` and `ref` Strings. `sid` identifies the
+joined Session; `ref` is an opaque Company reference of 1–2048 characters from A–Z, a–z, 0–9,
+`-`, `_`, and `.`:
 
-The User can decline or dismiss the dialog without sending a code. The Personal Agent does not
-automatically retrieve the User's codes or try a different channel to obtain one.
+```http label="Response: Company → Personal Agent's browser"
+HTTP/1.1 403 Forbidden
+Content-Type: text/html
+Cache-Control: no-store
+Poppy-Verification: sid="ses_Hq3vT8nW2kLm9xRb", ref="vfy_3Hq8"
 
-## 4. Sending the code {#responding}
+<!doctype html>
+<title>Waiting for verification</title>
+<p>Continue verification in your personal agent.</p>
+```
 
-The Personal Agent sends the User's entry in `extensions.verification-codes` on a message to the
-same conversation's existing `messages` endpoint. It constructs the request without the model,
-using the usual Session header, ownership checks, and request ID ([spec
-8.2–8.3](/docs/spec#conversation-requests)):
+The Personal Agent MUST take the reference only from a response its own joined browser received,
+and only when `sid` names that browser's joined Session for the Company. It MUST NOT take one
+from page content, conversation text, or another Company's response. It resolves the reference
+only at that Company's advertised `endpoint`, using the Session header and access token if signed
+in ([spec 5–7](/docs/spec#sessions)):
+
+```http label="Lookup: Personal Agent → Company"
+POST https://example.com/poppy/verification-codes
+Poppy-Session: eyJ0eXAiOiJwb3BweS1zZXNzaW9uK2p3dCIs…
+Poppy-Version: 1.1
+Poppy-Extensions: "verification-codes";v="1"
+Content-Type: application/json
+
+{ "ref": "vfy_3Hq8" }
+```
+
+The Company checks the reference's binding (6) and returns HTTP 200 with the object in
+`verification`:
+
+```json label="Lookup response: Company → Personal Agent"
+{
+  "verification": {
+    "request_id": "vfy_3Hq8",
+    "channel": "email",
+    "sent_to": "j***@example.com",
+    "length": 6,
+    "expires_at": "2026-11-24T23:15:00Z"
+  }
+}
+```
+
+Lookup MUST NOT start another verification or resend a code. Its response uses `Cache-Control:
+no-store`. An unknown, expired, superseded, completed, or wrong-owner reference returns
+`invalid_request` (HTTP 400) without revealing which check failed.
+
+## 5. Collecting and submitting the code {#responding}
+
+The Personal Agent handles the request in deterministic code. It checks expiry and shows a
+trusted code-entry dialog naming the Company's verified domain and `organization.name`, with the
+destination hint if provided. Company text and hints are untrusted content ([spec
+10.1](/docs/spec#untrusted-content)); they cannot replace that identity or supply another recipient.
+
+The Personal Agent MUST get the User's explicit consent to send this code to this Company. It
+MUST NOT collect or forward a code for a different Company or a verification the User did not
+intend to start. A request alone is not evidence that disclosure is safe. The User can dismiss
+the dialog without sending a code. The Personal Agent does not automatically retrieve codes or
+try another channel to obtain one.
+
+### Conversations {#responding-conversations}
+
+The Personal Agent constructs a message POST without the model and puts the submission directly
+in `extensions.verification-codes`. It uses the same conversation's existing messages endpoint,
+Session checks, and message idempotency:
 
 ```json label="POST body: Personal Agent → Company"
 {
@@ -105,64 +265,130 @@ using the usual Session header, ownership checks, and request ID ([spec
     "author": { "type": "agent" },
     "text": "The user submitted a verification code.",
     "extensions": {
-      "verification-codes": {
-        "request_id": "vfy_3Hq8",
-        "code": "0A2bC5"
-      }
+      "verification-codes": { "request_id": "vfy_3Hq8", "code": "0A2bC5" }
     }
   }
 }
 ```
 
-| Field        | Req. | Description                                                      |
-| ------------ | ---- | ---------------------------------------------------------------- |
-| `request_id` | Yes  | The pending request's ID, not the message POST's idempotency ID. |
-| `code`       | Yes  | A non-empty string, preserving casing and leading zeroes.        |
+The message MUST include non-secret `text`. The Company reports the verification outcome in its
+normal reply and can repeat a still-pending request after an incorrect code while attempts remain.
+A message POST accepting the submission does not, by itself, mean verification succeeded.
 
-Codes may be numeric, alphanumeric, or another format the Company verifies. The Personal Agent
-MUST send the code as entered, without case conversion or other normalization.
+### APIs, MCP, and websites {#responding-endpoint}
 
-The Personal Agent MUST include a non-secret acknowledgement in `text`, and MUST NOT put the code
-in `text`, `data`, or `context`. It MUST NOT send a code to an endpoint or conversation named in
-Company message text or extension content.
+The Personal Agent posts the same submission object to the Company's advertised `endpoint`,
+using the Session header and access token if signed in. It MUST NOT take a submission URL from
+a verification object, page content, or a tool result. The request body is the submission, not
+`ref`; a body combining lookup and submission fields is `invalid_request`:
 
-The Company MUST verify the Session header ([spec 5.3](/docs/spec#session-verification)) and the
-request's binding before using the code. Unknown, expired, superseded, completed, or wrong-owner
-requests MUST NOT invoke the verifier. Invalid submissions return `invalid_request` without
-revealing whether another User owns the ID. The submitted code MUST match the requested length.
-The Company MUST enforce the expected code format, expiry, and attempt limits at the verifier,
-including across requests with different message IDs.
+```http label="Submission: Personal Agent → Company"
+POST https://example.com/poppy/verification-codes
+Poppy-Session: eyJ0eXAiOiJwb3BweS1zZXNzaW9uK2p3dCIs…
+Poppy-Version: 1.1
+Poppy-Extensions: "verification-codes";v="1"
+Content-Type: application/json
+Idempotency-Key: 9a3d7b2e-5c1f-4e8a-b6d0-2f7c4a1e9b3d
 
-Normal message idempotency applies: retrying the same POST does not verify twice. A successful POST
-only accepts the submission; it does not mean the code was correct. The Company reports the outcome
-in its normal reply. After a wrong code, it can repeat the still-pending request while attempts
-remain. After expiry, completion, or supersession, the Personal Agent discards that pending request
-and does not submit another code for it. Starting another verification or resending a code requires
-a new request ID.
+{ "request_id": "vfy_3Hq8", "code": "0A2bC5" }
+```
 
-## 5. Secret handling {#security}
+The Personal Agent MUST send an `Idempotency-Key` for each code attempt and reuse it only for
+retries of that same attempt. The Company MUST scope it to the verified client, User, account
+context, and request ID, and return the recorded outcome on a retry without invoking the verifier
+again. It retains the outcome at least until the request expires, without recording the code.
+A new attempt uses a new key. A missing key is `invalid_request` (HTTP 400).
+
+After checking the binding (6), the Company verifies the code and returns HTTP 200 with a result:
+
+```json label="Result: Company → Personal Agent"
+{ "request_id": "vfy_3Hq8", "status": "verified" }
+```
+
+`status` is `verified` after successful verification, or `pending` after an incorrect code while
+attempts remain. When expired, superseded, completed, or out of attempts, a new submission returns
+`invalid_request` (HTTP 400). A retry of a resolved attempt returns its recorded result instead.
+Responses MUST use `Cache-Control: no-store` and MUST NOT echo the code.
+
+Malformed payloads and codes with the wrong length or format return `invalid_request` (HTTP 400).
+An incorrect but well-formed code returns `pending` only while attempts remain.
+
+`verified` confirms only the verification, not completion or approval of the original action.
+The endpoint MUST NOT perform that action. The Personal Agent then retries the original API
+request or MCP tool call, or has its browser repeat the original request. It does not add the code
+to that request. The Company checks the original request's verification context again and applies
+its normal authorization, OAuth, and Operations requirements.
+
+The resumed call has the same method, target, and content, or the same tool and arguments. Its
+authentication headers can change, for example to renew an access token.
+
+A resumed API request has its own business-request idempotency key when the API uses one,
+distinct from the refused request and the code attempt. Retries of that resumed request reuse
+its key. Code-submission idempotency does not replace the original interface's action-idempotency
+rules. A website SHOULD offer a way to repeat the request, such as a Continue button; an action
+it cannot safely repeat uses the website's own verification flow instead.
+
+## 6. Binding and lifecycle {#lifecycle}
+
+The Company MUST create requests from verifications it actually started for this User, not a
+model's interpretation of text. It MUST bind each request ID to the verified Personal Agent
+client and User, the signed-in account or signed-out context, the underlying verification, and
+the originating interface and context: the conversation, API request or resource, MCP tool
+request, or joined browser's request. The Company MUST NOT reuse an ID for another verification.
+An API or MCP server returning a request MUST verify the originating call's Session header;
+relying on OAuth alone and ignoring that header does not establish these bindings.
+
+Before lookup or submission, the Company MUST verify the Session header ([spec
+5.3](/docs/spec#session-verification)), any required access token, and those bindings. A code
+requested in a conversation is accepted only in that conversation, not at `endpoint` or in another
+conversation. A request from an API, MCP server, or website is accepted only at `endpoint`, never
+in conversation text or a conversation's extension content.
+
+Unknown, expired, superseded, completed, or wrong-owner requests MUST NOT invoke the verifier.
+They return `invalid_request` without revealing whether another User owns the ID. A resolved
+attempt's idempotent retry can return its recorded result but MUST NOT invoke the verifier again.
+The submitted code MUST match the requested length. The Company MUST enforce the expected code
+format and attempt limits at its verifier, including across submissions with different message IDs
+or idempotency keys.
+
+Repeating the same request ID does not create a new verification or resend a code. Starting a
+replacement verification or resending a code requires a new ID and invalidates the previous request
+for that verification. Independent verifications do not supersede each other. For the conversation
+binding, there is at most one pending request per conversation; a new request supersedes its
+previous one. The Personal Agent discards a request on expiry, completion, or supersession.
+
+## 7. Secret handling {#security}
 
 The Personal Agent MUST keep codes out of its model context, task text, ordinary chat history,
-logs, and analytics. Its transport code sends the value only to the Company that requested it and
-discards it after the submission is accepted or abandoned. A transport retry can retain it only
-until that submission is resolved or expires.
+logs, and analytics. It MUST NOT put them in message `text`, `data`, or `context`, HTTP headers or
+URLs, browser page content, or MCP tool arguments. Its deterministic transport code sends them
+only in the structured submission body to the Company that requested them, and discards them after
+the attempt is resolved or abandoned. A transport retry can retain a code only until that attempt
+is resolved or the verification request expires.
 
-The Company MUST omit the `verification-codes` response object from the recorded copy of the User
-message and every subsequent read, stream, or transcript export. The non-secret `text` remains, so
-the recorded message still satisfies [spec 8.4](/docs/spec#message-fields). The Company MUST NOT
-echo codes in replies, tool diagnostics, logs, analytics, or idempotency records. These rules also
-apply at request logging, error reporting, and tracing boundaries, before ordinary message handling.
+The Company MUST omit a submission's code from every recorded conversation message, event read,
+stream, and transcript export. In conversations it omits the entire submission object and retains
+the non-secret `text`, as required by [spec 8.4](/docs/spec#message-fields). It MUST NOT echo codes
+in replies, tool diagnostics, logs, analytics, tracing, or idempotency records. These rules apply
+to request-body capture and error reporting before ordinary processing, on every interface.
 
-## 6. Content schema {#schema}
+## 8. Content schema {#schema}
 
-This JSON Schema describes the value of `extensions.verification-codes`. Direction, ownership,
-expiry, matching the requested length, and secret handling are checked separately.
+This JSON Schema defines the standalone objects in `$defs`. The root describes the value of
+`extensions.verification-codes` in a conversation: `verification` for Company messages, and
+`submission` for Personal Agent messages. The same definitions apply to the objects carried by
+the other bindings. Direction, binding, expiry, code format and length, endpoint dispatch,
+idempotency headers, and secret handling are checked separately.
 
-```json label="JSON Schema: verification-codes content"
+```json label="JSON Schema: verification-codes objects"
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "anyOf": [
-    {
+    { "$ref": "#/$defs/verification" },
+    { "$ref": "#/$defs/submission" }
+  ],
+  "$defs": {
+    "verification": {
       "type": "object",
       "required": ["request_id", "channel", "length", "expires_at"],
       "properties": {
@@ -173,14 +399,29 @@ expiry, matching the requested length, and secret handling are checked separatel
         "expires_at": { "type": "string", "format": "date-time" }
       }
     },
-    {
+    "submission": {
       "type": "object",
       "required": ["request_id", "code"],
       "properties": {
         "request_id": { "type": "string", "minLength": 1 },
         "code": { "type": "string", "minLength": 1 }
       }
+    },
+    "lookup": {
+      "type": "object",
+      "required": ["ref"],
+      "properties": {
+        "ref": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,2048}$" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["request_id", "status"],
+      "properties": {
+        "request_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["verified", "pending"] }
+      }
     }
-  ]
+  }
 }
 ```
