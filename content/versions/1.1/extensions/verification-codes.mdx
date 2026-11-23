@@ -17,6 +17,9 @@ pattern of a standalone object with interface-specific delivery rules. A common 
 envelope could later carry both kinds of object; this proposal does not require that refactor or
 change Operations.
 
+This extension adds no endpoint. Each interface carries the request and submission through its
+existing message, API, tool, or browser request path.
+
 This is not another OAuth grant. It does not issue access tokens or replace Direct or Device
 Sign-In when an OAuth-protected resource requires an access token. How a Company supplies the
 submitted code to its existing verifier is an implementation detail; no form engine or
@@ -30,22 +33,13 @@ A Company lists the extension in `extensions` in its `poppy.json` ([spec
 ```json label="Excerpt from poppy.json"
 {
   "extensions": {
-    "verification-codes": [
-      { "version": "1", "endpoint": "https://example.com/poppy/verification-codes" }
-    ]
+    "verification-codes": [{ "version": "1" }]
   }
 }
 ```
 
-`endpoint` is the HTTPS URL where the Personal Agent submits codes returned outside conversations
-and retrieves requests referenced by a website. A Company MUST list it if it returns verification
-requests at an API, MCP server, or website. A Company using only conversations omits it and uses
-its existing messages endpoint. Website support also requires `web.browser_session_endpoint`
-([spec 6](/docs/spec#web-browsing)).
-
-Signed-in calls to `endpoint` use a token valid for that endpoint under [spec
-4.5](/docs/spec#access-tokens), with the token's usual Bearer or DPoP handling. A token issued only
-for an originating API or MCP server MUST NOT be sent to this separate endpoint.
+There is no verification endpoint to advertise. Websites use the existing browser-Session join
+mechanism ([spec 6](/docs/spec#web-browsing)).
 
 A Personal Agent declares this version in `Poppy-Extensions` on an interface whose binding it
 implements. A browser uses the extensions declared when it joined the Session:
@@ -125,8 +119,8 @@ Cache-Control: no-store
 }
 ```
 
-The Personal Agent submits the code to the advertised `endpoint` (5), not to a URL supplied in
-the response body. The original API keeps its own request format.
+The Personal Agent submits the code on the same API request (5), not to a URL supplied in the
+response body. The original API keeps its own resource path and body format.
 
 ### MCP {#delivery-mcp}
 
@@ -150,7 +144,8 @@ and `error: "verification_required"` plus `verification` in `structuredContent`:
 }
 ```
 
-The Personal Agent submits the code to `endpoint`, not through a model-generated tool call.
+The Personal Agent submits the code in metadata on the same tool call (5), not in model-generated
+tool arguments.
 
 ### Conversations {#delivery-conversations}
 
@@ -187,57 +182,28 @@ under the same account-matching rules as [Operations
 4](/docs/extensions/operations#approval-required-websites). Otherwise it handles verification
 through its own UI.
 
-The website returns HTTP 403 and a reference in the `Poppy-Verification` response header. Like
-`Poppy-Operation`, this is a Dictionary Structured Field ([RFC
-9651](https://www.rfc-editor.org/rfc/rfc9651)) with `sid` and `ref` Strings. `sid` identifies the
-joined Session; `ref` is an opaque Company reference of 1–2048 characters from A–Z, a–z, 0–9,
-`-`, `_`, and `.`:
+The website returns HTTP 403 and the verification object's fields directly in the
+`Poppy-Verification` response header, with `sid` identifying the joined Session. No reference
+lookup is needed. This is a Dictionary Structured Field ([RFC
+9651](https://www.rfc-editor.org/rfc/rfc9651)): `length` is an Integer; `sid`, `request_id`,
+`channel`, `sent_to`, and `expires_at` are Strings, or Display Strings when a value cannot be
+represented as a String. `sent_to` remains optional. Unknown members are ignored.
 
 ```http label="Response: Company → Personal Agent's browser"
 HTTP/1.1 403 Forbidden
 Content-Type: text/html
 Cache-Control: no-store
-Poppy-Verification: sid="ses_Hq3vT8nW2kLm9xRb", ref="vfy_3Hq8"
+Poppy-Verification: sid="ses_Hq3vT8nW2kLm9xRb", request_id="vfy_3Hq8", channel="email", sent_to="j***@example.com", length=6, expires_at="2026-11-24T23:15:00Z"
 
 <!doctype html>
 <title>Waiting for verification</title>
 <p>Continue verification in your personal agent.</p>
 ```
 
-The Personal Agent MUST take the reference only from a response its own joined browser received,
+The Personal Agent MUST take the object only from a response its own joined browser received,
 and only when `sid` names that browser's joined Session for the Company. It MUST NOT take one
-from page content, conversation text, or another Company's response. It resolves the reference
-only at that Company's advertised `endpoint`, using the Session header and access token if signed
-in ([spec 5–7](/docs/spec#sessions)):
-
-```http label="Lookup: Personal Agent → Company"
-POST https://example.com/poppy/verification-codes
-Poppy-Session: eyJ0eXAiOiJwb3BweS1zZXNzaW9uK2p3dCIs…
-Poppy-Version: 1.1
-Poppy-Extensions: "verification-codes";v="1"
-Content-Type: application/json
-
-{ "ref": "vfy_3Hq8" }
-```
-
-The Company checks the reference's binding (6) and returns HTTP 200 with the object in
-`verification`:
-
-```json label="Lookup response: Company → Personal Agent"
-{
-  "verification": {
-    "request_id": "vfy_3Hq8",
-    "channel": "email",
-    "sent_to": "j***@example.com",
-    "length": 6,
-    "expires_at": "2026-11-24T23:15:00Z"
-  }
-}
-```
-
-Lookup MUST NOT start another verification or resend a code. Its response uses `Cache-Control:
-no-store`. An unknown, expired, superseded, completed, or wrong-owner reference returns
-`invalid_request` (HTTP 400) without revealing which check failed.
+from page content, conversation text, or another Company's response. Its deterministic network
+handler parses the header into the verification object (3) and collects the code as below.
 
 ## 5. Collecting and submitting the code {#responding}
 
@@ -275,58 +241,100 @@ The message MUST include non-secret `text`. The Company reports the verification
 normal reply and can repeat a still-pending request after an incorrect code while attempts remain.
 A message POST accepting the submission does not, by itself, mean verification succeeded.
 
-### APIs, MCP, and websites {#responding-endpoint}
+### APIs {#responding-apis}
 
-The Personal Agent posts the same submission object to the Company's advertised `endpoint`,
-using the Session header and access token if signed in. It MUST NOT take a submission URL from
-a verification object, page content, or a tool result. The request body is the submission, not
-`ref`; a body combining lookup and submission fields is `invalid_request`:
+As with Operations' [API approval binding](/docs/extensions/operations#sending-approval-apis),
+the Personal Agent repeats the original request with the same method, target URI, and content.
+It adds the submission in `Poppy-Verification`, a Dictionary Structured Field with `request_id`
+and `code` as Strings, or Display Strings when needed. The decoded values are exactly those in
+the submission object (3), without normalization. Unknown members are ignored. This leaves the
+API's resource path and body unchanged:
 
-```http label="Submission: Personal Agent → Company"
-POST https://example.com/poppy/verification-codes
+```http label="Request: Personal Agent → Company"
+POST https://api.example.com/orders/ord_7Hk2/exchanges
 Poppy-Session: eyJ0eXAiOiJwb3BweS1zZXNzaW9uK2p3dCIs…
 Poppy-Version: 1.1
 Poppy-Extensions: "verification-codes";v="1"
 Content-Type: application/json
 Idempotency-Key: 9a3d7b2e-5c1f-4e8a-b6d0-2f7c4a1e9b3d
+Cache-Control: no-store
+Poppy-Verification: request_id="vfy_3Hq8", code="0A2bC5"
 
-{ "request_id": "vfy_3Hq8", "code": "0A2bC5" }
+{ "item_id": "itm_4Qa", "replacement_sku": "stormline-insulated-m" }
 ```
 
-The Personal Agent MUST send an `Idempotency-Key` for each code attempt and reuse it only for
-retries of that same attempt. The Company MUST scope it to the verified client, User, account
-context, and request ID, and return the recorded outcome on a retry without invoking the verifier
-again. It retains the outcome at least until the request expires, without recording the code.
-A new attempt uses a new key. A missing key is `invalid_request` (HTTP 400).
+Authentication stays on the original interface, including a verified Session header and any
+required access token. Authentication headers can change, for example to renew an access token.
 
-After checking the binding (6), the Company verifies the code and returns HTTP 200 with a result:
+### MCP {#responding-mcp}
 
-```json label="Result: Company → Personal Agent"
-{ "request_id": "vfy_3Hq8", "status": "verified" }
+The Personal Agent calls the same tool with the same arguments, putting the submission in
+`params._meta` under `personalagentprotocol.org/verification`, as Operations does for
+[approvals](/docs/extensions/operations#sending-approval-mcp). Its deterministic transport
+handler adds this metadata after the model-facing tool call is constructed:
+
+```json label="Tool call: Personal Agent → Company"
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "exchange_item",
+    "arguments": {
+      "order_id": "ord_7Hk2",
+      "item_id": "itm_4Qa",
+      "replacement_sku": "stormline-insulated-m"
+    },
+    "_meta": {
+      "personalagentprotocol.org/verification": {
+        "request_id": "vfy_3Hq8",
+        "code": "0A2bC5"
+      }
+    }
+  }
+}
 ```
 
-`status` is `verified` after successful verification, or `pending` after an incorrect code while
-attempts remain. When expired, superseded, completed, or out of attempts, a new submission returns
-`invalid_request` (HTTP 400). A retry of a resolved attempt returns its recorded result instead.
-Responses MUST use `Cache-Control: no-store` and MUST NOT echo the code.
+The server verifies the call's Session header and any required access token as on the original
+call. The code MUST NOT appear in `arguments` or model-facing tool-call records.
 
-Malformed payloads and codes with the wrong length or format return `invalid_request` (HTTP 400).
-An incorrect but well-formed code returns `pending` only while attempts remain.
+### Websites {#responding-websites}
 
-`verified` confirms only the verification, not completion or approval of the original action.
-The endpoint MUST NOT perform that action. The Personal Agent then retries the original API
-request or MCP tool call, or has its browser repeat the original request. It does not add the code
-to that request. The Company checks the original request's verification context again and applies
-its normal authorization, OAuth, and Operations requirements.
+The Personal Agent repeats the original browser request with the same method, target URI, and
+content. Its trusted network handler adds the same `Poppy-Verification` submission header as
+at an API. It does not put the code in the DOM, a form field, a URL, or browser tool arguments.
+The Company checks the existing joined browser Session and account; the Personal Agent MUST
+NOT forward the header across a redirect or attach it to another request.
 
-The resumed call has the same method, target, and content, or the same tool and arguments. Its
-authentication headers can change, for example to renew an access token.
+A website SHOULD offer a way to repeat the request, such as a Continue button. If the browser
+cannot safely repeat it or inject the header without exposing the code to model-facing tools,
+it uses the website's own verification flow instead.
 
-A resumed API request has its own business-request idempotency key when the API uses one,
-distinct from the refused request and the code attempt. Retries of that resumed request reuse
-its key. Code-submission idempotency does not replace the original interface's action-idempotency
-rules. A website SHOULD offer a way to repeat the request, such as a Continue button; an action
-it cannot safely repeat uses the website's own verification flow instead.
+### Processing and retries {#processing}
+
+The Company checks the binding (6) before invoking its verifier. After successful verification,
+it continues handling the original API, tool, or browser request and returns that interface's
+normal result. It still applies its normal authorization, OAuth, and Operations requirements:
+verification alone neither approves an operation nor grants permission to perform it. There is
+no separate `verified` result or follow-up request required by this extension.
+
+At an API, MCP server, or website, an incorrect but well-formed code returns
+`verification_required` with the same verification object while attempts remain, using the
+original interface's response form (4). Malformed submissions, including codes with the wrong
+length or format, return `invalid_request` (HTTP 400, or an MCP tool error). HTTP verification
+responses use `Cache-Control: no-store`.
+
+Submissions use the existing interface's idempotency mechanism, scoped to the verified client,
+User, account context, and request ID. When an API uses `Idempotency-Key`, a code attempt uses
+a new key, distinct from the refused request; retries of that attempt reuse its key. A new code
+attempt uses a new key. The Company returns the recorded result of an idempotent retry without
+verifying the code or performing the action again, retaining it at least until request expiry
+and while the action's outcome remains uncertain. The code itself is never recorded.
+
+The Personal Agent MUST NOT automatically retry a code-bearing request unless the interface's
+existing idempotency mechanism covers both verification and the original action. Without that
+mechanism, an uncertain result is not evidence of failure and MUST NOT trigger another attempt.
+This extension does not add a business-action idempotency mechanism.
 
 ## 6. Binding and lifecycle {#lifecycle}
 
@@ -338,11 +346,12 @@ request, or joined browser's request. The Company MUST NOT reuse an ID for anoth
 An API or MCP server returning a request MUST verify the originating call's Session header;
 relying on OAuth alone and ignoring that header does not establish these bindings.
 
-Before lookup or submission, the Company MUST verify the Session header ([spec
-5.3](/docs/spec#session-verification)), any required access token, and those bindings. A code
-requested in a conversation is accepted only in that conversation, not at `endpoint` or in another
-conversation. A request from an API, MCP server, or website is accepted only at `endpoint`, never
-in conversation text or a conversation's extension content.
+Before submission, the Company MUST verify the Session header ([spec
+5.3](/docs/spec#session-verification)), or the existing joined Session for a browser, any required
+access token, and those bindings. A code requested in a conversation is accepted only in that
+conversation. Other submissions are accepted only on the originating API request, MCP tool call,
+or joined browser request with the same method, target, and content or tool and arguments. A
+request ID is not a bearer credential and MUST NOT authorize submission on another interface.
 
 Unknown, expired, superseded, completed, or wrong-owner requests MUST NOT invoke the verifier.
 They return `invalid_request` without revealing whether another User owns the ID. A resolved
@@ -360,25 +369,32 @@ previous one. The Personal Agent discards a request on expiry, completion, or su
 ## 7. Secret handling {#security}
 
 The Personal Agent MUST keep codes out of its model context, task text, ordinary chat history,
-logs, and analytics. It MUST NOT put them in message `text`, `data`, or `context`, HTTP headers or
-URLs, browser page content, or MCP tool arguments. Its deterministic transport code sends them
-only in the structured submission body to the Company that requested them, and discards them after
-the attempt is resolved or abandoned. A transport retry can retain a code only until that attempt
-is resolved or the verification request expires.
+logs, and analytics. It MUST NOT put them in message `text`, `data`, or `context`, URLs, browser
+page content, or MCP tool arguments. Its deterministic transport code sends them only in the
+binding's structured submission to the Company that requested them, and discards them after the
+attempt is resolved or abandoned. A transport retry can retain a code only until that attempt is
+resolved or the verification request expires.
+
+The `Poppy-Verification` request header and the MCP submission metadata are sensitive credentials.
+Both sides MUST redact them before header or metadata capture, logging, tracing, diagnostics,
+analytics, or model-facing tool records, including in proxies and browser automation. The
+Personal Agent MUST add the HTTP submission header only to the intended request to the verified
+Company and MUST NOT forward it across redirects.
 
 The Company MUST omit a submission's code from every recorded conversation message, event read,
 stream, and transcript export. In conversations it omits the entire submission object and retains
 the non-secret `text`, as required by [spec 8.4](/docs/spec#message-fields). It MUST NOT echo codes
 in replies, tool diagnostics, logs, analytics, tracing, or idempotency records. These rules apply
-to request-body capture and error reporting before ordinary processing, on every interface.
+to body, header, and metadata capture and error reporting before ordinary processing, on every
+interface. Code-bearing HTTP requests and responses MUST use `Cache-Control: no-store`.
 
 ## 8. Content schema {#schema}
 
 This JSON Schema defines the standalone objects in `$defs`. The root describes the value of
 `extensions.verification-codes` in a conversation: `verification` for Company messages, and
 `submission` for Personal Agent messages. The same definitions apply to the objects carried by
-the other bindings. Direction, binding, expiry, code format and length, endpoint dispatch,
-idempotency headers, and secret handling are checked separately.
+the other bindings after parsing the HTTP header or extracting MCP metadata. Direction, binding,
+expiry, code format and length, idempotency, and secret handling are checked separately.
 
 ```json label="JSON Schema: verification-codes objects"
 {
@@ -405,21 +421,6 @@ idempotency headers, and secret handling are checked separately.
       "properties": {
         "request_id": { "type": "string", "minLength": 1 },
         "code": { "type": "string", "minLength": 1 }
-      }
-    },
-    "lookup": {
-      "type": "object",
-      "required": ["ref"],
-      "properties": {
-        "ref": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,2048}$" }
-      }
-    },
-    "result": {
-      "type": "object",
-      "required": ["request_id", "status"],
-      "properties": {
-        "request_id": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["verified", "pending"] }
       }
     }
   }
