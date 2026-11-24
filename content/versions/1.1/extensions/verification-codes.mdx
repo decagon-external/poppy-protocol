@@ -66,18 +66,87 @@ without normalization. The Company validates its format.
 ### APIs {#delivery-apis}
 
 The API returns HTTP 403 with `error: "verification_required"` and the verification request in
-`verification`. The Personal Agent repeats the same method, target URI, and body, adding the
-submission in a `Poppy-Verification` request header:
+`verification`:
 
-```http label="Request header: Personal Agent → Company"
+```http label="Response: Company → Personal Agent"
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+Cache-Control: no-store
+
+{
+  "error": "verification_required",
+  "verification": {
+    "request_id": "vfy_3Hq8",
+    "channel": "email",
+    "sent_to": "j***@example.com",
+    "length": 6,
+    "expires_at": "2026-11-24T23:15:00Z"
+  }
+}
+```
+
+The Personal Agent repeats the same method, target URI, and body, adding the submission in
+`Poppy-Verification`:
+
+```http label="Request: Personal Agent → Company"
+POST https://api.example.com/orders/ord_7Hk2/exchanges
+Poppy-Session: eyJ0eXAiOiJwb3BweS1zZXNzaW9uK2p3dCIs…
+Poppy-Version: 1.1
+Poppy-Extensions: "verification-codes";v="1"
+Content-Type: application/json
+Idempotency-Key: 9a3d7b2e-5c1f-4e8a-b6d0-2f7c4a1e9b3d
+Cache-Control: no-store
 Poppy-Verification: request_id="vfy_3Hq8", code="0A2bC5"
+
+{ "item_id": "itm_4Qa", "replacement_sku": "stormline-insulated-m" }
 ```
 
 ### MCP {#delivery-mcp}
 
 The tool returns `isError: true` with `error: "verification_required"` and `verification` in
-`structuredContent`. The Personal Agent repeats the same tool call and arguments, putting the
-submission in `params._meta["personalagentprotocol.org/verification"]`, not in tool arguments.
+`structuredContent`:
+
+```json label="Tool result: Company → Personal Agent"
+{
+  "isError": true,
+  "content": [{ "type": "text", "text": "Verification is required before continuing." }],
+  "structuredContent": {
+    "error": "verification_required",
+    "verification": {
+      "request_id": "vfy_3Hq8",
+      "channel": "email",
+      "sent_to": "j***@example.com",
+      "length": 6,
+      "expires_at": "2026-11-24T23:15:00Z"
+    }
+  }
+}
+```
+
+The Personal Agent repeats the same tool call and arguments, putting the submission in
+`params._meta["personalagentprotocol.org/verification"]`, not in tool arguments:
+
+```json label="Tool call: Personal Agent → Company"
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "exchange_item",
+    "arguments": {
+      "order_id": "ord_7Hk2",
+      "item_id": "itm_4Qa",
+      "replacement_sku": "stormline-insulated-m"
+    },
+    "_meta": {
+      "personalagentprotocol.org/verification": {
+        "request_id": "vfy_3Hq8",
+        "code": "0A2bC5"
+      }
+    }
+  }
+}
+```
 
 ### Conversations {#delivery-conversations}
 
@@ -121,16 +190,24 @@ The Company reports the verification outcome in its normal reply.
 
 ### Websites {#delivery-websites}
 
-A website uses this binding for a browser joined to a Session ([spec 6](/docs/spec#web-browsing)).
-It returns HTTP 403 with the verification object's fields and the joined Session's `sid` in a response
-header:
+A website uses this binding for a browser joined to a Session ([spec 6](/docs/spec#web-browsing)),
+using the extensions declared when it joined. It returns HTTP 403 with the verification object's
+fields and the joined Session's `sid` in a response header:
 
-```http label="Response header: Company → Personal Agent's browser"
+```http label="Response: Company → Personal Agent's browser"
+HTTP/1.1 403 Forbidden
+Cache-Control: no-store
 Poppy-Verification: sid="ses_Hq3vT8nW2kLm9xRb", request_id="vfy_3Hq8", channel="email", sent_to="j***@example.com", length=6, expires_at="2026-11-24T23:15:00Z"
 ```
 
 The Personal Agent accepts the header only from its own browser's joined Company Session.
-It repeats the original browser request with the same submission header as an API.
+It repeats the same method, target URI, and body through that browser, adding the submission header:
+
+```http label="Request: Personal Agent's browser → Company"
+GET https://example.com/orders/ord_7Hk2
+Cache-Control: no-store
+Poppy-Verification: request_id="vfy_3Hq8", code="0A2bC5"
+```
 
 The HTTP headers above are Dictionary Structured Fields ([RFC
 9651](https://www.rfc-editor.org/rfc/rfc9651)). `length` is an Integer. Other values are Strings,

@@ -55,10 +55,11 @@ MUST NOT list a task both here and in `excluded_tasks`.
 <Change title="Verification codes across interfaces" sections="Verification Codes">
 
 The optional Verification Codes extension carries verification requests and code submissions
-through existing APIs, MCP tools, conversations, and joined browsers. No new endpoint is added.
-The Personal Agent collects codes through trusted UI and submits them outside its model context.
-Codes preserve casing and leading zeroes. The extension defines request binding, expiry, attempt
-limits, and redaction of submitted codes.
+through existing APIs, MCP tools, conversations, and joined browsers. Conversations use message
+extensions, MCP uses structured results and call metadata, and APIs and browsers accept submissions
+in headers. No new endpoint is added. The Personal Agent collects codes through trusted UI and
+submits them outside its model context. Codes preserve casing and leading zeroes. The extension
+defines request binding, expiry, attempt limits, and redaction of submitted codes.
 
 </Change>
 
