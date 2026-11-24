@@ -54,17 +54,11 @@ MUST NOT list a task both here and in `excluded_tasks`.
 
 <Change title="Verification codes across interfaces" sections="Verification Codes">
 
-The optional Verification Codes extension defines standalone verification requests and code
-submissions, carried by APIs, MCP tools, conversations, or websites. Conversations use the existing
-messages endpoint. APIs and joined browsers repeat the original request with a sensitive
-`Poppy-Verification` header; MCP repeats the tool call with submission metadata, not tool arguments.
-Websites return the request directly in a response header, without a reference lookup. No new
-endpoint is introduced. The Personal Agent collects codes through trusted UI and submits them
-outside its model context. Codes preserve casing and leading zeroes, and stay out of ordinary
-records. Request binding, expiry, attempt limits, and existing-interface idempotency apply on every
-interface. Successful verification lets the original request continue under its normal
-authorization and approval rules; it does not itself
-approve an action, grant OAuth tokens, or require Operations or a shared Company-to-Agent envelope.
+The optional Verification Codes extension carries verification requests and code submissions
+through existing APIs, MCP tools, conversations, and joined browsers. No new endpoint is added.
+The Personal Agent collects codes through trusted UI and submits them outside its model context.
+Codes preserve casing and leading zeroes. The extension defines request binding, expiry, attempt
+limits, and redaction of submitted codes.
 
 </Change>
 
