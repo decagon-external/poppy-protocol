@@ -52,6 +52,20 @@ MUST NOT list a task both here and in `excluded_tasks`.
 
 </Change>
 
+<Change title="Verification codes across interfaces" sections="Verification Codes">
+
+The optional Verification Codes extension carries verification requests and code submissions
+through APIs, MCP tools, conversations, and joined browsers. Conversations nest `verification`,
+`submission`, or `failed` in message extensions; MCP uses structured results and call metadata.
+APIs accept submissions in `Poppy-Verification-Submission`. Only websites add an endpoint: the
+browser receives a Session-bound reference, and the Personal Agent looks up and submits the code
+outside the browser. Wrong codes reuse the request; expiry or exhausted attempts return a terminal
+failure. Expiry and attempt counts are optional metadata enforced by the Company's verifier.
+Resends require explicit User intent. The Personal Agent collects codes through trusted
+UI, outside its model context. Codes preserve casing and leading zeroes, and submissions are redacted.
+
+</Change>
+
 ### Minor changes {#v1-1-minor}
 
 <Change title="`offline_access`" sections="4.4, 4.7, 4.8, 11">
