@@ -54,8 +54,11 @@ The Company creates a verification request after starting a verification for thi
 | `channel`            | Yes  | Code source, such as email or an authenticator.            |
 | `sent_to`            | No   | A masked destination hint.                                |
 | `length`             | Yes  | The number of characters, counted as Unicode code points. |
-| `expires_at`         | Yes  | When the request expires, as an RFC 3339 timestamp.        |
+| `expires_at`         | No   | When the request expires, as an RFC 3339 timestamp.        |
 | `attempts_remaining` | No   | A positive integer: how many submissions remain.          |
+
+Expiry and attempts are optional metadata from the Company's verification service, which
+enforces both.
 
 The Personal Agent submits the request ID and code:
 
@@ -279,8 +282,8 @@ consent to send the code to that Company.
 
 The Company MUST bind each request ID to the verified Personal Agent, User, account or signed-out
 context, underlying verification, and originating request or conversation. It checks those bindings,
-expiry, code length and format, and attempt limits before accepting a submission. Unknown, expired,
-completed, or wrong-owner IDs MUST NOT invoke the verifier.
+code length and format before accepting a submission. Its verification service enforces expiry
+and attempt limits. Unknown, completed, or wrong-owner IDs MUST NOT invoke the verifier.
 
 After verification succeeds, the original request continues under its normal authorization and
 approval rules. If approval is also required, a retry carries both the approval and submission
@@ -319,7 +322,7 @@ The definitions describe the standalone objects. The root describes `extensions[
   "$defs": {
     "verification": {
       "type": "object",
-      "required": ["request_id", "channel", "length", "expires_at"],
+      "required": ["request_id", "channel", "length"],
       "properties": {
         "request_id": { "type": "string", "minLength": 1 },
         "channel": { "type": "string", "minLength": 1 },

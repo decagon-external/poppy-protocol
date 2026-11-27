@@ -60,7 +60,8 @@ through APIs, MCP tools, conversations, and joined browsers. Conversations nest 
 APIs accept submissions in `Poppy-Verification-Submission`. Only websites add an endpoint: the
 browser receives a Session-bound reference, and the Personal Agent looks up and submits the code
 outside the browser. Wrong codes reuse the request; expiry or exhausted attempts return a terminal
-failure. Resends require explicit User intent. The Personal Agent collects codes through trusted
+failure. Expiry and attempt counts are optional metadata enforced by the Company's verifier.
+Resends require explicit User intent. The Personal Agent collects codes through trusted
 UI, outside its model context. Codes preserve casing and leading zeroes, and submissions are redacted.
 
 </Change>
